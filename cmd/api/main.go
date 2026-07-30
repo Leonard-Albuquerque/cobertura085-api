@@ -37,14 +37,32 @@ func main() {
 	}
 
 	// 4. Injeção de Dependência Manual (Construtores)
+	// Handlers de Infra / Auth
 	healthHandler := handler.NewHealthHandler(db)
 
 	userRepo := repository.NewUserRepository(db)
 	storeRepo := repository.NewStoreRepository(db)
+	neighborhoodRepo := repository.NewNeighborhoodRepository(db)
+	baseNeighborhoodRepo := repository.NewBaseNeighborhoodRepository(db)
+	lobRepo := repository.NewLineOfBusinessRepository(db)
+	searchEventRepo := repository.NewSearchEventRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
+
 	jwtService := service.NewJWTService(cfg.JWTSecret)
 	authService := service.NewAuthService(userRepo, storeRepo, refreshTokenRepo, jwtService, cfg)
 	authHandler := handler.NewAuthHandler(authService)
+
+	// Serviços das Novas Funcionalidades
+	storeService := service.NewStoreService(storeRepo, neighborhoodRepo, lobRepo)
+	neighborhoodService := service.NewNeighborhoodService(neighborhoodRepo)
+	commonService := service.NewCommonService(lobRepo, baseNeighborhoodRepo)
+	telemetryService := service.NewTelemetryService(searchEventRepo)
+
+	// Handlers das Novas Funcionalidades
+	storeHandler := handler.NewStoreHandler(storeService)
+	neighborhoodHandler := handler.NewNeighborhoodHandler(neighborhoodService)
+	commonHandler := handler.NewCommonHandler(commonService)
+	telemetryHandler := handler.NewTelemetryHandler(telemetryService)
 
 	// 5. Configurar Roteador Gin
 	router := gin.Default()
@@ -55,7 +73,7 @@ func main() {
 	// Grupo API v1
 	apiV1 := router.Group("/api/v1")
 	{
-		// Rotas Públicas de Autenticação
+		// Rotas de Autenticação
 		authGroup := apiV1.Group("/auth")
 		{
 			authGroup.POST("/register", authHandler.Register)
@@ -68,6 +86,41 @@ func main() {
 			{
 				authProtected.GET("/me", authHandler.GetProfile)
 			}
+		}
+
+		// Rotas do Módulo de Lojas
+		storesGroup := apiV1.Group("/stores")
+		{
+			storesGroup.GET("", storeHandler.ListPublic)
+			storesGroup.GET("/qr/:token", storeHandler.GetByQRToken)
+			storesGroup.GET("/:id", storeHandler.GetBySlug)
+			storesGroup.PUT("/:id/settings", storeHandler.UpdateSettings)
+			storesGroup.GET("/:id/dashboard-stats", storeHandler.GetDashboardStats)
+			storesGroup.GET("/:id/neighborhoods", neighborhoodHandler.ListByStore)
+			storesGroup.GET("/:id/neighborhoods/check", neighborhoodHandler.CheckByStore)
+		}
+
+		// Rotas do Módulo de Bairros
+		neighborhoodsGroup := apiV1.Group("/neighborhoods")
+		{
+			neighborhoodsGroup.PATCH("/bulk", neighborhoodHandler.UpdateBulk)
+			neighborhoodsGroup.PATCH("/:id", neighborhoodHandler.UpdateSingle)
+		}
+
+		// Rotas do Módulo de Utilitários e Domínio
+		commonGroup := apiV1.Group("")
+		{
+			commonGroup.GET("/lines-of-business", commonHandler.ListLinesOfBusiness)
+			commonGroup.GET("/base-neighborhoods/by-name/:name", commonHandler.GetBaseNeighborhoodByName)
+		}
+
+		// Rotas do Módulo de Telemetria e Analytics
+		telemetryGroup := apiV1.Group("/telemetry")
+		{
+			telemetryGroup.POST("/search-events", telemetryHandler.CreateSearchEvent)
+			telemetryGroup.GET("/summary", telemetryHandler.GetSummary)
+			telemetryGroup.GET("/logs", telemetryHandler.GetRecentLogs)
+			telemetryGroup.GET("/stores/:storeId", telemetryHandler.GetBusinessStats)
 		}
 	}
 
