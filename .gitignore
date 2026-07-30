@@ -1,0 +1,31 @@
+# Binaries for programs and plugins
+*.exe
+*.exe-e
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary built using `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS generated files
+Thumbs.db
