@@ -14,6 +14,9 @@ import (
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/config"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/database"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/handler"
+	"github.com/Leonard-Albuquerque/cobertura085-api/internal/middleware"
+	"github.com/Leonard-Albuquerque/cobertura085-api/internal/repository"
+	"github.com/Leonard-Albuquerque/cobertura085-api/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -36,11 +39,37 @@ func main() {
 	// 4. Injeção de Dependência Manual (Construtores)
 	healthHandler := handler.NewHealthHandler(db)
 
+	userRepo := repository.NewUserRepository(db)
+	storeRepo := repository.NewStoreRepository(db)
+	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
+	jwtService := service.NewJWTService(cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, storeRepo, refreshTokenRepo, jwtService, cfg)
+	authHandler := handler.NewAuthHandler(authService)
+
 	// 5. Configurar Roteador Gin
 	router := gin.Default()
 
 	// Registro de Rotas Base
 	router.GET("/health", healthHandler.Check)
+
+	// Grupo API v1
+	apiV1 := router.Group("/api/v1")
+	{
+		// Rotas Públicas de Autenticação
+		authGroup := apiV1.Group("/auth")
+		{
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/refresh", authHandler.RefreshToken)
+			authGroup.POST("/logout", authHandler.Logout)
+
+			// Rotas Protegidas de Autenticação
+			authProtected := authGroup.Group("", middleware.AuthMiddleware(jwtService))
+			{
+				authProtected.GET("/me", authHandler.GetProfile)
+			}
+		}
+	}
 
 	// 6. Configurar Servidor HTTP
 	srv := &http.Server{
