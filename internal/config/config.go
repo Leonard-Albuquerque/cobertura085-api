@@ -2,41 +2,42 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 // Config armazena as configurações da aplicação carregadas de variáveis de ambiente.
 type Config struct {
-	Port       string
-	GinMode    string
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
+	Port        string
+	GinMode     string
+	DatabaseURL string
 }
 
 // Load carrega as variáveis de ambiente com valores padrão de fallback.
 func Load() *Config {
-	return &Config{
-		Port:       getEnv("PORT", "8080"),
-		GinMode:    getEnv("GIN_MODE", "debug"),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "5432"),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBName:     getEnv("DB_NAME", "cobertura085"),
-		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+	// 🔴 CORREÇÃO: Tenta carregar o .env na raiz ou subpastas
+	if err := godotenv.Load(); err != nil {
+		if err := godotenv.Load("../.env"); err != nil {
+			log.Println("[INFO] Arquivo .env não encontrado, usando variáveis de ambiente do sistema")
+		}
 	}
+
+	cfg := &Config{
+		Port:        getEnv("PORT", "8080"),
+		GinMode:     getEnv("GIN_MODE", "debug"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/cobertura085?sslmode=disable"),
+	}
+
+	log.Printf("[DEBUG] DSN Carregada: %s\n", cfg.DSN())
+	return cfg
 }
 
 // DSN retorna a string de conexão (Data Source Name) para o PostgreSQL.
 func (c *Config) DSN() string {
-	return fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
-		c.DBHost, c.DBUser, c.DBPassword, c.DBName, c.DBPort, c.DBSSLMode,
-	)
+	fmt.Println("DSN de Conexão:", c.DatabaseURL)
+	return c.DatabaseURL
 }
 
 func getEnv(key, defaultValue string) string {
