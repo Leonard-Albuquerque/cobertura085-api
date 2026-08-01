@@ -17,6 +17,7 @@ import (
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/middleware"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/repository"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/service"
+	"github.com/Leonard-Albuquerque/cobertura085-api/internal/service/external"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -36,10 +37,11 @@ func main() {
 		log.Printf("[AVISO] Não foi possível conectar ao PostgreSQL durante a inicialização: %v\n", err)
 	}
 
-	// 4. Injeção de Dependência Manual (Construtores)
-	// Handlers de Infra / Auth
-	healthHandler := handler.NewHealthHandler(db)
+	// 4. Clientes HTTP Externos (ViaCEP e OpenStreetMap Nominatim)
+	viaCEPClient := external.NewViaCEPClient()
+	nominatimClient := external.NewNominatimClient()
 
+	// Repositórios
 	userRepo := repository.NewUserRepository(db)
 	storeRepo := repository.NewStoreRepository(db)
 	neighborhoodRepo := repository.NewNeighborhoodRepository(db)
@@ -48,21 +50,32 @@ func main() {
 	searchEventRepo := repository.NewSearchEventRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
 
+	// Serviços
 	jwtService := service.NewJWTService(cfg.JWTSecret)
 	authService := service.NewAuthService(userRepo, storeRepo, refreshTokenRepo, jwtService, cfg)
-	authHandler := handler.NewAuthHandler(authService)
-
-	// Serviços das Novas Funcionalidades
 	storeService := service.NewStoreService(storeRepo, neighborhoodRepo, lobRepo)
 	neighborhoodService := service.NewNeighborhoodService(neighborhoodRepo)
 	commonService := service.NewCommonService(lobRepo, baseNeighborhoodRepo)
 	telemetryService := service.NewTelemetryService(searchEventRepo)
+	shippingService := service.NewShippingService(
+		viaCEPClient,
+		nominatimClient,
+		storeRepo,
+		baseNeighborhoodRepo,
+		neighborhoodRepo,
+		telemetryService,
+	)
+	geoJSONService := service.NewGeoJSONService("")
 
-	// Handlers das Novas Funcionalidades
+	// Handlers HTTP
+	healthHandler := handler.NewHealthHandler(db)
+	authHandler := handler.NewAuthHandler(authService)
 	storeHandler := handler.NewStoreHandler(storeService)
 	neighborhoodHandler := handler.NewNeighborhoodHandler(neighborhoodService)
 	commonHandler := handler.NewCommonHandler(commonService)
 	telemetryHandler := handler.NewTelemetryHandler(telemetryService)
+	shippingHandler := handler.NewShippingHandler(shippingService)
+	geoJSONHandler := handler.NewGeoJSONHandler(geoJSONService)
 
 	// 5. Configurar Roteador Gin
 	router := gin.Default()
@@ -107,11 +120,22 @@ func main() {
 			neighborhoodsGroup.PATCH("/:id", neighborhoodHandler.UpdateSingle)
 		}
 
+		// Rotas de Frete e Consultas Externas
+		shippingGroup := apiV1.Group("/shipping")
+		{
+			shippingGroup.POST("/lookup-cep", shippingHandler.LookupCEP)
+			shippingGroup.POST("/lookup-address", shippingHandler.LookupAddress)
+			shippingGroup.POST("/lookup-coords", shippingHandler.LookupCoords)
+			shippingGroup.POST("/lookup-selected-address", shippingHandler.LookupSelectedAddress)
+			shippingGroup.GET("/address-suggestions", shippingHandler.GetAddressSuggestions)
+		}
+
 		// Rotas do Módulo de Utilitários e Domínio
 		commonGroup := apiV1.Group("")
 		{
 			commonGroup.GET("/lines-of-business", commonHandler.ListLinesOfBusiness)
 			commonGroup.GET("/base-neighborhoods/by-name/:name", commonHandler.GetBaseNeighborhoodByName)
+			commonGroup.GET("/geojson/bairros-fortaleza", geoJSONHandler.GetBairrosFortaleza)
 		}
 
 		// Rotas do Módulo de Telemetria e Analytics

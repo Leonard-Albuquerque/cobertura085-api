@@ -6,6 +6,7 @@ import (
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/handler"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/repository"
 	"github.com/Leonard-Albuquerque/cobertura085-api/internal/service"
+	"github.com/Leonard-Albuquerque/cobertura085-api/internal/service/external"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,15 +20,29 @@ func TestRouterInitialization(t *testing.T) {
 	lobRepo := repository.NewLineOfBusinessRepository(nil)
 	searchEventRepo := repository.NewSearchEventRepository(nil)
 
+	viaCEPClient := external.NewViaCEPClient()
+	nominatimClient := external.NewNominatimClient()
+
 	storeService := service.NewStoreService(storeRepo, neighborhoodRepo, lobRepo)
 	neighborhoodService := service.NewNeighborhoodService(neighborhoodRepo)
 	commonService := service.NewCommonService(lobRepo, baseNeighborhoodRepo)
 	telemetryService := service.NewTelemetryService(searchEventRepo)
+	shippingService := service.NewShippingService(
+		viaCEPClient,
+		nominatimClient,
+		storeRepo,
+		baseNeighborhoodRepo,
+		neighborhoodRepo,
+		telemetryService,
+	)
+	geoJSONService := service.NewGeoJSONService("")
 
 	storeHandler := handler.NewStoreHandler(storeService)
 	neighborhoodHandler := handler.NewNeighborhoodHandler(neighborhoodService)
 	commonHandler := handler.NewCommonHandler(commonService)
 	telemetryHandler := handler.NewTelemetryHandler(telemetryService)
+	shippingHandler := handler.NewShippingHandler(shippingService)
+	geoJSONHandler := handler.NewGeoJSONHandler(geoJSONService)
 
 	apiV1 := router.Group("/api/v1")
 	{
@@ -48,10 +63,20 @@ func TestRouterInitialization(t *testing.T) {
 			neighborhoodsGroup.PATCH("/:id", neighborhoodHandler.UpdateSingle)
 		}
 
+		shippingGroup := apiV1.Group("/shipping")
+		{
+			shippingGroup.POST("/lookup-cep", shippingHandler.LookupCEP)
+			shippingGroup.POST("/lookup-address", shippingHandler.LookupAddress)
+			shippingGroup.POST("/lookup-coords", shippingHandler.LookupCoords)
+			shippingGroup.POST("/lookup-selected-address", shippingHandler.LookupSelectedAddress)
+			shippingGroup.GET("/address-suggestions", shippingHandler.GetAddressSuggestions)
+		}
+
 		commonGroup := apiV1.Group("")
 		{
 			commonGroup.GET("/lines-of-business", commonHandler.ListLinesOfBusiness)
 			commonGroup.GET("/base-neighborhoods/by-name/:name", commonHandler.GetBaseNeighborhoodByName)
+			commonGroup.GET("/geojson/bairros-fortaleza", geoJSONHandler.GetBairrosFortaleza)
 		}
 
 		telemetryGroup := apiV1.Group("/telemetry")
@@ -63,5 +88,5 @@ func TestRouterInitialization(t *testing.T) {
 		}
 	}
 
-	t.Log("Gin radix tree router initialized successfully without panic!")
+	t.Log("Roteador Gin inicializado com sucesso com todas as rotas da Fase 1 e Fase 2!")
 }
